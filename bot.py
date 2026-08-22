@@ -47,7 +47,10 @@ if not DISCORD_TOKEN:
 openai_client = None
 
 if OPENAI_API_KEY:
-    openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+   openai_client = AsyncOpenAI(
+    base_url="https://api.bazaarlink.ai/v1",
+    api_key=OPENAI_API_KEY
+)
 
 
 # ============================================================
