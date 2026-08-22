@@ -36,6 +36,9 @@ VERIFY_ROLE_NAME = os.getenv("VERIFY_ROLE_NAME", "Verified")
 # Ticket category name
 TICKET_CATEGORY_NAME = os.getenv("TICKET_CATEGORY_NAME", "Tickets")
 
+# Roblox verification using bloxlink
+BLOXLINK_API_KEY = os.getenv("BLOXLINK_API_KEY")
+
 print("RAILWAY_ENV:", os.getenv("RAILWAY_ENVIRONMENT_NAME"))
 print("RAILWAY_SERVICE:", os.getenv("RAILWAY_SERVICE_NAME"))
 print("DISCORD_TOKEN_EXISTS:", bool(os.getenv("DISCORD_TOKEN")))
@@ -43,6 +46,9 @@ print("DISCORD_TOKEN_LENGTH:", len(os.getenv("DISCORD_TOKEN") or ""))
 
 if not DISCORD_TOKEN:
     raise RuntimeError("DISCORD_TOKEN is missing.")
+
+if not BLOXLINK_API_KEY:
+    print("⚠️ BLOXLINK_API_KEY is not configured. Roblox verification commands will be unavailable.")
 
 openai_client = None
 
@@ -448,6 +454,317 @@ async def serverinfo(interaction: discord.Interaction):
     )
 
     await interaction.response.send_message(embed=embed)
+
+
+# ============================================================
+# BLOXLINK / ROBLOX VERIFICATION
+# ============================================================
+
+BLOXLINK_API_BASE = "https://api.blox.link/v4/public"
+
+
+async def bloxlink_request(
+    method: str,
+    endpoint: str
+):
+    if not BLOXLINK_API_KEY:
+        return None, "Bloxlink API key is not configured."
+
+    url = f"{BLOXLINK_API_BASE}{endpoint}"
+
+    headers = {
+        "Authorization": BLOXLINK_API_KEY
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.request(
+                method,
+                url,
+                headers=headers
+            ) as response:
+
+                try:
+                    data = await response.json()
+                except Exception:
+                    data = {}
+
+                if response.status == 200:
+                    return data, None
+
+                if response.status == 404:
+                    return None, "not_found"
+
+                return None, (
+                    f"Bloxlink API returned HTTP {response.status}"
+                )
+
+    except aiohttp.ClientError as e:
+        print(f"Bloxlink API error: {e}")
+        return None, "Bloxlink API connection failed."
+
+
+# ============================================================
+# /VERIFY
+# ============================================================
+
+@bot.tree.command(
+    name="verify",
+    description="Get the Bloxlink Roblox verification page."
+)
+async def verify(interaction: discord.Interaction):
+
+    embed = discord.Embed(
+        title="🔗 Roblox Verification",
+        description=(
+            "Link your Roblox account with Bloxlink, "
+            "then use `/verify-check` here."
+        ),
+        color=discord.Color.blurple()
+    )
+
+    embed.add_field(
+        name="How to verify",
+        value=(
+            "1. Open the Bloxlink verification page.\n"
+            "2. Sign in with Discord.\n"
+            "3. Link your Roblox account.\n"
+            "4. Select this server.\n"
+            "5. Come back and run `/verify-check`."
+        ),
+        inline=False
+    )
+
+    view = discord.ui.View()
+
+    view.add_item(
+        discord.ui.Button(
+            label="Verify with Bloxlink",
+            url="https://blox.link/dashboard/user/verifications/verify",
+            style=discord.ButtonStyle.link
+        )
+    )
+
+    await interaction.response.send_message(
+        embed=embed,
+        view=view,
+        ephemeral=True
+    )
+
+
+# ============================================================
+# /VERIFY-CHECK
+# ============================================================
+
+@bot.tree.command(
+    name="verify-check",
+    description="Check your linked Roblox account."
+)
+async def verify_check(
+    interaction: discord.Interaction
+):
+
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "❌ This command can only be used in a server.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(
+        ephemeral=True
+    )
+
+    data, error = await bloxlink_request(
+        "GET",
+        f"/guilds/{interaction.guild.id}/discord-to-roblox/{interaction.user.id}"
+    )
+
+    if error == "not_found":
+        embed = discord.Embed(
+            title="❌ Not Verified",
+            description=(
+                "I couldn't find a Roblox account linked "
+                "to your Discord account through Bloxlink."
+            ),
+            color=discord.Color.red()
+        )
+
+        embed.add_field(
+            name="What to do",
+            value=(
+                "Run `/verify` and complete the Bloxlink "
+                "verification process."
+            ),
+            inline=False
+        )
+
+        await interaction.followup.send(
+            embed=embed,
+            ephemeral=True
+        )
+        return
+
+    if error:
+        await interaction.followup.send(
+            f"❌ {error}",
+            ephemeral=True
+        )
+        return
+
+    roblox_id = data.get("robloxID")
+
+    if not roblox_id:
+        await interaction.followup.send(
+            "❌ Bloxlink didn't return a Roblox ID.",
+            ephemeral=True
+        )
+        return
+
+    # Ask Bloxlink to update the user's roles/nickname.
+    update_data, update_error = await bloxlink_request(
+        "POST",
+        f"/guilds/{interaction.guild.id}/update-user/{interaction.user.id}"
+    )
+
+    embed = discord.Embed(
+        title="✅ Roblox Verified",
+        color=discord.Color.green()
+    )
+
+    embed.add_field(
+        name="Roblox ID",
+        value=str(roblox_id),
+        inline=False
+    )
+
+    if update_data:
+        added_roles = update_data.get(
+            "addedRoles",
+            []
+        )
+
+        nickname = update_data.get(
+            "nickname"
+        )
+
+        if added_roles:
+            embed.add_field(
+                name="Roles Updated",
+                value=", ".join(added_roles),
+                inline=False
+            )
+
+        if nickname:
+            embed.add_field(
+                name="Bloxlink Nickname",
+                value=str(nickname),
+                inline=False
+            )
+
+    if update_error and update_error != "not_found":
+        embed.set_footer(
+            text="Roblox account found, but Bloxlink role update failed."
+        )
+
+    await interaction.followup.send(
+        embed=embed,
+        ephemeral=True
+    )
+
+
+# ============================================================
+# BLOXLINK / ROBLOX VERIFICATION
+# ============================================================
+
+@bot.tree.command(
+    name="roblox",
+    description="Look up the Roblox account linked to a Discord user."
+)
+@app_commands.describe(
+    user="The Discord user to look up."
+)
+async def roblox(
+    interaction: discord.Interaction,
+    user: discord.Member
+):
+
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "❌ This command can only be used in a server.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer()
+
+    data, error = await bloxlink_request(
+        "GET",
+        f"/guilds/{interaction.guild.id}/discord-to-roblox/{user.id}"
+    )
+
+    if error == "not_found":
+        embed = discord.Embed(
+            title="❌ Roblox Account Not Found",
+            description=(
+                f"{user.mention} doesn't appear to have "
+                "a Bloxlink-linked Roblox account in this server."
+            ),
+            color=discord.Color.red()
+        )
+
+        await interaction.followup.send(
+            embed=embed
+        )
+        return
+
+    if error:
+        await interaction.followup.send(
+            f"❌ {error}"
+        )
+        return
+
+    roblox_id = data.get("robloxID")
+
+    if not roblox_id:
+        await interaction.followup.send(
+            "❌ Bloxlink didn't return a Roblox ID."
+        )
+        return
+
+    embed = discord.Embed(
+        title="🎮 Roblox Account",
+        color=discord.Color.blurple()
+    )
+
+    embed.set_thumbnail(
+        url=f"https://www.roblox.com/headshot-thumbnail/image?userId={roblox_id}&width=420&height=420&format=png"
+    )
+
+    embed.add_field(
+        name="Discord",
+        value=user.mention,
+        inline=True
+    )
+
+    embed.add_field(
+        name="Roblox ID",
+        value=str(roblox_id),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Roblox Profile",
+        value=(
+            f"[View Roblox Profile]"
+            f"(https://www.roblox.com/users/{roblox_id}/profile)"
+        ),
+        inline=False
+    )
+
+    await interaction.followup.send(
+        embed=embed
+    )
 
 
 # ============================================================
