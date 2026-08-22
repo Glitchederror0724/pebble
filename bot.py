@@ -326,15 +326,14 @@ async def on_ready():
         if TEST_GUILD_ID:
             guild = discord.Object(id=int(TEST_GUILD_ID))
 
-            # Copy global commands to the test guild.
-            bot.tree.copy_global_to(guild=guild)
-
+            # Sync commands directly to the test server.
             synced = await bot.tree.sync(guild=guild)
 
             print(f"Synced {len(synced)} commands to test guild.")
 
         else:
             synced = await bot.tree.sync()
+
             print(f"Synced {len(synced)} global commands.")
 
     except Exception as e:
