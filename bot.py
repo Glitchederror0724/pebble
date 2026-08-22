@@ -225,6 +225,27 @@ async def setup(interaction: discord.Interaction):
     # ============================================================
 
     async def get_or_create_channel(name, category):
+    # Find an existing channel anywhere in the server
+    channel = discord.utils.find(
+        lambda c: (
+            isinstance(c, discord.TextChannel)
+            and c.name == name
+        ),
+        guild.channels
+    )
+
+    if channel:
+        return channel
+
+    channel = await guild.create_text_channel(
+        name=name,
+        category=category,
+        reason="Bot server setup"
+    )
+
+    created_channels.append(name)
+
+    return channel
         channel = discord.utils.get(
             guild.text_channels,
             name=name
