@@ -134,6 +134,236 @@ async def get_roblox_user(username: str):
 # ============================================================
 # BOT EVENTS
 # ============================================================
+@bot.tree.command(
+    name="setup",
+    description="Set up the basic server channels and roles."
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def setup(interaction: discord.Interaction):
+
+    guild = interaction.guild
+
+    if guild is None:
+        await interaction.response.send_message(
+            "❌ This command can only be used inside a server.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    created_channels = []
+    created_roles = []
+
+    # ============================================================
+    # ROLES
+    # ============================================================
+
+    verified_role = discord.utils.get(
+        guild.roles,
+        name="Verified"
+    )
+
+    if verified_role is None:
+        verified_role = await guild.create_role(
+            name="Verified",
+            reason="Bot server setup"
+        )
+        created_roles.append("Verified")
+
+    muted_role = discord.utils.get(
+        guild.roles,
+        name="Muted"
+    )
+
+    if muted_role is None:
+        muted_role = await guild.create_role(
+            name="Muted",
+            reason="Bot server setup"
+        )
+        created_roles.append("Muted")
+
+    # ============================================================
+    # CATEGORIES
+    # ============================================================
+
+    info_category = discord.utils.get(
+        guild.categories,
+        name="SERVER INFO"
+    )
+
+    if info_category is None:
+        info_category = await guild.create_category(
+            "SERVER INFO",
+            reason="Bot server setup"
+        )
+
+    support_category = discord.utils.get(
+        guild.categories,
+        name="SUPPORT"
+    )
+
+    if support_category is None:
+        support_category = await guild.create_category(
+            "SUPPORT",
+            reason="Bot server setup"
+        )
+
+    logs_category = discord.utils.get(
+        guild.categories,
+        name="BOT LOGS"
+    )
+
+    if logs_category is None:
+        logs_category = await guild.create_category(
+            "BOT LOGS",
+            reason="Bot server setup"
+        )
+
+    # ============================================================
+    # CHANNEL HELPER
+    # ============================================================
+
+    async def get_or_create_channel(name, category):
+        channel = discord.utils.get(
+            guild.text_channels,
+            name=name
+        )
+
+        if channel is None:
+            channel = await guild.create_text_channel(
+                name,
+                category=category,
+                reason="Bot server setup"
+            )
+
+            created_channels.append(name)
+
+        return channel
+
+    # ============================================================
+    # SERVER INFO CHANNELS
+    # ============================================================
+
+    await get_or_create_channel(
+        "welcome",
+        info_category
+    )
+
+    await get_or_create_channel(
+        "rules",
+        info_category
+    )
+
+    await get_or_create_channel(
+        "announcements",
+        info_category
+    )
+
+    # ============================================================
+    # SUPPORT CHANNELS
+    # ============================================================
+
+    await get_or_create_channel(
+        "tickets",
+        support_category
+    )
+
+    # ============================================================
+    # LOG CHANNELS
+    # ============================================================
+
+    await get_or_create_channel(
+        "mod-logs",
+        logs_category
+    )
+
+    await get_or_create_channel(
+        "server-logs",
+        logs_category
+    )
+
+    # ============================================================
+    # SETUP EMBED
+    # ============================================================
+
+    embed = discord.Embed(
+        title="✅ Server Setup Complete",
+        description=(
+            "The basic server structure has been created."
+        ),
+        color=discord.Color.green()
+    )
+
+    if created_roles:
+        embed.add_field(
+            name="Roles Created",
+            value="\n".join(
+                f"• {role}" for role in created_roles
+            ),
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="Roles",
+            value="All required roles already existed.",
+            inline=False
+        )
+
+    if created_channels:
+        embed.add_field(
+            name="Channels Created",
+            value="\n".join(
+                f"• #{channel}" for channel in created_channels
+            ),
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="Channels",
+            value="All required channels already existed.",
+            inline=False
+        )
+
+    embed.set_footer(
+        text=f"Setup completed by {interaction.user}"
+    )
+
+    await interaction.followup.send(
+        embed=embed,
+        ephemeral=True
+    )
+
+
+@setup.error
+async def setup_error(
+    interaction: discord.Interaction,
+    error: app_commands.AppCommandError
+):
+
+    if isinstance(
+        error,
+        app_commands.errors.MissingPermissions
+    ):
+        await interaction.response.send_message(
+            "❌ You need Administrator permission to use `/setup`.",
+            ephemeral=True
+        )
+        return
+
+    print(f"/setup error: {error}")
+
+    if interaction.response.is_done():
+        await interaction.followup.send(
+            "❌ Something went wrong while setting up the server.",
+            ephemeral=True
+        )
+    else:
+        await interaction.response.send_message(
+            "❌ Something went wrong while setting up the server.",
+            ephemeral=True
+        )
+
 
 @bot.event
 async def on_ready():
