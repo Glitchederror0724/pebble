@@ -1303,10 +1303,3 @@ async def on_app_command_error(
         print(f"Error handler failed: {e}")
 
 
-# ============================================================
-# START BOT
-# ============================================================
-
-if __name__ == "__main__":
-    bot.run(DISCORD_TOKEN)
-```
