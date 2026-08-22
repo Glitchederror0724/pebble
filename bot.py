@@ -33,6 +33,11 @@ VERIFY_ROLE_NAME = os.getenv("VERIFY_ROLE_NAME", "Verified")
 # Ticket category name
 TICKET_CATEGORY_NAME = os.getenv("TICKET_CATEGORY_NAME", "Tickets")
 
+print("RAILWAY_ENV:", os.getenv("RAILWAY_ENVIRONMENT_NAME"))
+print("RAILWAY_SERVICE:", os.getenv("RAILWAY_SERVICE_NAME"))
+print("DISCORD_TOKEN_EXISTS:", bool(os.getenv("DISCORD_TOKEN")))
+print("DISCORD_TOKEN_LENGTH:", len(os.getenv("DISCORD_TOKEN") or ""))
+
 if not DISCORD_TOKEN:
     raise RuntimeError("DISCORD_TOKEN is missing.")
 
