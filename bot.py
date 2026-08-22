@@ -25,7 +25,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TEST_GUILD_ID = os.getenv("TEST_GUILD_ID")
 
 # OpenAI model
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5")
+OPENAI_MODEL = os.getenv(
+    "OPENAI_MODEL",
+    "openai/gpt-5.2"
+)
 
 # Roblox verification role name
 VERIFY_ROLE_NAME = os.getenv("VERIFY_ROLE_NAME", "Verified")
