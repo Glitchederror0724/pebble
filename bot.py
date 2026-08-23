@@ -1682,16 +1682,15 @@ async def poll(
 
 @bot.tree.command(
     name="ai",
-    description="Ask Gemini an AI question."
+    description="Ask the AI a question."
 )
 @app_commands.describe(
     question="What do you want to ask?"
 )
-async def ask(
+async def ai(
     interaction: discord.Interaction,
     question: str
 ):
-
     if gemini_client is None:
         await interaction.response.send_message(
             "❌ Gemini AI is not configured.",
@@ -1707,25 +1706,19 @@ async def ask(
             contents=question
         )
 
-        answer = response.text
+        answer = response.text or "❌ Gemini returned no response."
 
-        if not answer:
-            answer = "❌ Gemini returned an empty response."
-
-        # Discord messages have a 2000 character limit.
-        if len(answer) <= 2000:
-            await interaction.followup.send(answer)
-        else:
-            for i in range(0, len(answer), 2000):
-                await interaction.followup.send(
-                    answer[i:i + 2000]
-                )
+        # Discord message limit
+        for i in range(0, len(answer), 2000):
+            await interaction.followup.send(
+                answer[i:i + 2000]
+            )
 
     except Exception as e:
-        print(f"Gemini API error: {e}")
+        print(f"Gemini error: {e}")
 
         await interaction.followup.send(
-            "❌ Gemini couldn't process your request."
+            "❌ Gemini encountered an error."
         )
 # ============================================================
 # ERROR HANDLER
