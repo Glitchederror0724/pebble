@@ -344,14 +344,17 @@ async def on_ready():
 
         guild = discord.Object(id=int(TEST_GUILD_ID))
 
-        # Copy the commands defined in bot.py into the test guild.
+        # Remove the existing test-guild command tree
+        bot.tree.clear_commands(guild=guild)
+
+        # Copy the current commands from this bot
         bot.tree.copy_global_to(guild=guild)
 
+        # Register the current command definitions
         synced = await bot.tree.sync(guild=guild)
 
         print(f"Synced {len(synced)} commands to test guild.")
 
-        print("Commands:")
         for command in synced:
             print(f"  /{command.name}")
 
