@@ -1306,7 +1306,7 @@ async def lookup(
 # ============================================================
 
 @bot.tree.command(
-    name="verify",
+    name="old_verify",
     description="Verify your Roblox account."
 )
 @app_commands.describe(username="Your Roblox username.")
