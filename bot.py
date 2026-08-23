@@ -333,29 +333,24 @@ async def setup_error(
 async def on_ready():
     print("=" * 50)
     print(f"Logged in as {bot.user}")
-    print(f"Bot ID: {bot.user.id}")
-    print(f"Servers: {len(bot.guilds)}")
 
     if not TEST_GUILD_ID:
-        print("❌ TEST_GUILD_ID is not set.")
         return
 
     try:
         guild = discord.Object(id=int(TEST_GUILD_ID))
 
-        # Remove all existing commands from this test guild.
-        bot.tree.clear_commands(guild=guild)
+        # ONE-TIME: delete old global commands
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
 
-        # Copy the commands defined in this bot into the test guild.
+        # Register commands only in the test server
+        bot.tree.clear_commands(guild=guild)
         bot.tree.copy_global_to(guild=guild)
 
-        # Register them.
         synced = await bot.tree.sync(guild=guild)
 
         print(f"Synced {len(synced)} commands to test guild.")
-
-        for command in synced:
-            print(f"  /{command.name}")
 
     except Exception as e:
         print(f"Command sync error: {e}")
