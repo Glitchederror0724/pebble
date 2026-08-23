@@ -1712,13 +1712,15 @@ async def ai(
             contents=question
         )
 
-        answer = response.text or "❌ Gemini returned no response."
+        answer = response.text or "Gemini returned no response."
 
-        # Discord message limit
-        for i in range(0, len(answer), 2000):
-            await interaction.followup.send(
-                answer[i:i + 2000]
-            )
+        if len(answer) <= 2000:
+            await interaction.followup.send(answer)
+        else:
+            for i in range(0, len(answer), 2000):
+                await interaction.followup.send(
+                    answer[i:i + 2000]
+                )
 
     except Exception as e:
         print(f"Gemini error: {e}")
