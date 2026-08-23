@@ -338,15 +338,30 @@ async def on_ready():
     print(f"Servers: {len(bot.guilds)}")
 
     if not TEST_GUILD_ID:
-        print("⚠️ TEST_GUILD_ID is not set.")
+        print("❌ TEST_GUILD_ID is not set.")
         return
 
     try:
         guild = discord.Object(id=int(TEST_GUILD_ID))
 
+        # Remove the old /ai command from the test server
+        try:
+            bot.tree.remove_command(
+                "ai",
+                guild=guild
+            )
+        except Exception:
+            pass
+
+        # Sync the current command tree
         synced = await bot.tree.sync(guild=guild)
 
         print(f"Synced {len(synced)} commands to test guild.")
+
+        # Show exactly what Discord received
+        print("Commands:")
+        for command in synced:
+            print(f"  /{command.name}")
 
     except Exception as e:
         print(f"Command sync error: {e}")
