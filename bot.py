@@ -1128,6 +1128,24 @@ async def eightball(
 
     await interaction.response.send_message(embed=embed)
 
+##################################################################
+################# PING ###########################################
+##################################################################
+
+@bot.tree.command(
+    name="ping",
+    description="Check the bot's latency."
+)
+async def ping(interaction: discord.Interaction):
+    latency = round(bot.latency * 1000)
+
+    embed = discord.Embed(
+        title="🏓 Pong!",
+        description=f"Bot latency: **{latency}ms**",
+        color=discord.Color.green()
+    )
+
+    await interaction.response.send_message(embed=embed)
 
 # ============================================================
 # FUN - COINFLIP
