@@ -976,7 +976,7 @@ async def timeout(
 
 
 # ============================================================
-# MODERATION - WARN
+# MODERATION - WARNINGS
 # ============================================================
 
 warnings = {}
@@ -1005,20 +1005,172 @@ async def warn(
     if user.id not in warnings[guild_id]:
         warnings[guild_id][user.id] = []
 
-    warnings[guild_id][user.id].append({
+    warning = {
         "reason": reason,
         "moderator": interaction.user.id,
-        "time": datetime.utcnow()
-    })
+        "time": discord.utils.utcnow()
+    }
+
+    warnings[guild_id][user.id].append(warning)
 
     count = len(warnings[guild_id][user.id])
 
-    await interaction.response.send_message(
-        f"⚠️ **{user}** has been warned.\n"
-        f"Reason: **{reason}**\n"
-        f"Warnings: **{count}**"
+    embed = discord.Embed(
+        title="⚠️ Warning Issued",
+        color=discord.Color.orange()
     )
 
+    embed.add_field(
+        name="User",
+        value=user.mention,
+        inline=True
+    )
+
+    embed.add_field(
+        name="Warnings",
+        value=str(count),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Reason",
+        value=reason,
+        inline=False
+    )
+
+    embed.set_footer(
+        text=f"Warned by {interaction.user}"
+    )
+
+    await interaction.response.send_message(
+        embed=embed
+    )
+
+
+# ============================================================
+# VIEW WARNINGS
+# ============================================================
+
+@bot.tree.command(
+    name="warnings",
+    description="View a member's warnings."
+)
+@app_commands.describe(
+    user="Member whose warnings you want to view."
+)
+@app_commands.checks.has_permissions(moderate_members=True)
+async def warnings_command(
+    interaction: discord.Interaction,
+    user: discord.Member
+):
+
+    guild_id = interaction.guild.id
+
+    user_warnings = warnings.get(
+        guild_id,
+        {}
+    ).get(
+        user.id,
+        []
+    )
+
+    if not user_warnings:
+        await interaction.response.send_message(
+            f"✅ {user.mention} has no warnings.",
+            ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(
+        title=f"⚠️ Warnings — {user}",
+        color=discord.Color.orange()
+    )
+
+    for index, warning in enumerate(
+        user_warnings,
+        start=1
+    ):
+
+        moderator = interaction.guild.get_member(
+            warning["moderator"]
+        )
+
+        moderator_name = (
+            moderator.mention
+            if moderator
+            else f"`{warning['moderator']}`"
+        )
+
+        embed.add_field(
+            name=f"Warning #{index}",
+            value=(
+                f"**Reason:** {warning['reason']}\n"
+                f"**Moderator:** {moderator_name}\n"
+                f"**Date:** {format_dt(warning['time'])}"
+            ),
+            inline=False
+        )
+
+    embed.set_footer(
+        text=f"Total warnings: {len(user_warnings)}"
+    )
+
+    await interaction.response.send_message(
+        embed=embed,
+        ephemeral=True
+    )
+
+
+# ============================================================
+# CLEAR WARNINGS
+# ============================================================
+
+@bot.tree.command(
+    name="clearwarnings",
+    description="Clear all warnings from a member."
+)
+@app_commands.describe(
+    user="Member whose warnings should be cleared."
+)
+@app_commands.checks.has_permissions(moderate_members=True)
+async def clearwarnings(
+    interaction: discord.Interaction,
+    user: discord.Member
+):
+
+    guild_id = interaction.guild.id
+
+    if guild_id not in warnings:
+        warnings[guild_id] = {}
+
+    old_warnings = warnings[guild_id].pop(
+        user.id,
+        []
+    )
+
+    if not old_warnings:
+        await interaction.response.send_message(
+            f"❌ {user.mention} has no warnings to clear.",
+            ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(
+        title="🧹 Warnings Cleared",
+        description=(
+            f"Cleared **{len(old_warnings)}** warning(s) "
+            f"from {user.mention}."
+        ),
+        color=discord.Color.green()
+    )
+
+    embed.set_footer(
+        text=f"Cleared by {interaction.user}"
+    )
+
+    await interaction.response.send_message(
+        embed=embed
+    )
 
 # ============================================================
 # MODERATION - PURGE
