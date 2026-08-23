@@ -4,7 +4,7 @@ import asyncio
 import aiohttp
 from datetime import datetime, timedelta
 import time
-
+import sqlite3
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -61,6 +61,64 @@ OPENROUTER_MODEL = os.getenv(
     "openrouter/free"
 )
 
+# ============================================================
+# DATABASE
+# ============================================================
+
+DB_FILE = "pebble.db"
+
+
+def get_db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_database():
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Warnings
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS warnings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            moderator_id INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+    # Server settings
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS server_settings (
+            guild_id INTEGER PRIMARY KEY,
+            suggestions_channel_id INTEGER,
+            logs_channel_id INTEGER,
+            tickets_category_id INTEGER
+        )
+    """)
+
+    # Roblox verification
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS roblox_verifications (
+            guild_id INTEGER NOT NULL,
+            discord_id INTEGER NOT NULL,
+            roblox_id INTEGER NOT NULL,
+            roblox_username TEXT,
+            verified_at TEXT NOT NULL,
+            PRIMARY KEY (guild_id, discord_id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+    print("✅ SQLite database initialized.")
+
+
+init_database()
 
 # ============================================================
 # BOT SETUP
@@ -976,11 +1034,8 @@ async def timeout(
 
 
 # ============================================================
-# MODERATION - WARNINGS
+# MODERATION - WARN
 # ============================================================
-
-warnings = {}
-
 
 @bot.tree.command(
     name="warn",
@@ -997,23 +1052,40 @@ async def warn(
     reason: str = "No reason provided"
 ):
 
-    guild_id = interaction.guild.id
+    conn = get_db()
+    cursor = conn.cursor()
 
-    if guild_id not in warnings:
-        warnings[guild_id] = {}
+    cursor.execute("""
+        INSERT INTO warnings (
+            guild_id,
+            user_id,
+            moderator_id,
+            reason,
+            created_at
+        )
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        interaction.guild.id,
+        user.id,
+        interaction.user.id,
+        reason,
+        discord.utils.utcnow().isoformat()
+    ))
 
-    if user.id not in warnings[guild_id]:
-        warnings[guild_id][user.id] = []
+    cursor.execute("""
+        SELECT COUNT(*) AS count
+        FROM warnings
+        WHERE guild_id = ?
+        AND user_id = ?
+    """, (
+        interaction.guild.id,
+        user.id
+    ))
 
-    warning = {
-        "reason": reason,
-        "moderator": interaction.user.id,
-        "time": discord.utils.utcnow()
-    }
+    count = cursor.fetchone()["count"]
 
-    warnings[guild_id][user.id].append(warning)
-
-    count = len(warnings[guild_id][user.id])
+    conn.commit()
+    conn.close()
 
     embed = discord.Embed(
         title="⚠️ Warning Issued",
@@ -1046,7 +1118,6 @@ async def warn(
         embed=embed
     )
 
-
 # ============================================================
 # VIEW WARNINGS
 # ============================================================
@@ -1064,17 +1135,25 @@ async def warnings_command(
     user: discord.Member
 ):
 
-    guild_id = interaction.guild.id
+    conn = get_db()
+    cursor = conn.cursor()
 
-    user_warnings = warnings.get(
-        guild_id,
-        {}
-    ).get(
-        user.id,
-        []
-    )
+    cursor.execute("""
+        SELECT *
+        FROM warnings
+        WHERE guild_id = ?
+        AND user_id = ?
+        ORDER BY id ASC
+    """, (
+        interaction.guild.id,
+        user.id
+    ))
 
-    if not user_warnings:
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    if not rows:
         await interaction.response.send_message(
             f"✅ {user.mention} has no warnings.",
             ephemeral=True
@@ -1086,40 +1165,40 @@ async def warnings_command(
         color=discord.Color.orange()
     )
 
-    for index, warning in enumerate(
-        user_warnings,
-        start=1
-    ):
+    for row in rows:
 
         moderator = interaction.guild.get_member(
-            warning["moderator"]
+            row["moderator_id"]
         )
 
         moderator_name = (
             moderator.mention
             if moderator
-            else f"`{warning['moderator']}`"
+            else f"`{row['moderator_id']}`"
+        )
+
+        created = datetime.fromisoformat(
+            row["created_at"]
         )
 
         embed.add_field(
-            name=f"Warning #{index}",
+            name=f"Warning #{row['id']}",
             value=(
-                f"**Reason:** {warning['reason']}\n"
+                f"**Reason:** {row['reason']}\n"
                 f"**Moderator:** {moderator_name}\n"
-                f"**Date:** {format_dt(warning['time'])}"
+                f"**Date:** {format_dt(created)}"
             ),
             inline=False
         )
 
     embed.set_footer(
-        text=f"Total warnings: {len(user_warnings)}"
+        text=f"Total warnings: {len(rows)}"
     )
 
     await interaction.response.send_message(
         embed=embed,
         ephemeral=True
     )
-
 
 # ============================================================
 # CLEAR WARNINGS
@@ -1138,27 +1217,46 @@ async def clearwarnings(
     user: discord.Member
 ):
 
-    guild_id = interaction.guild.id
+    conn = get_db()
+    cursor = conn.cursor()
 
-    if guild_id not in warnings:
-        warnings[guild_id] = {}
+    cursor.execute("""
+        SELECT COUNT(*) AS count
+        FROM warnings
+        WHERE guild_id = ?
+        AND user_id = ?
+    """, (
+        interaction.guild.id,
+        user.id
+    ))
 
-    old_warnings = warnings[guild_id].pop(
-        user.id,
-        []
-    )
+    count = cursor.fetchone()["count"]
 
-    if not old_warnings:
+    if count == 0:
+        conn.close()
+
         await interaction.response.send_message(
-            f"❌ {user.mention} has no warnings to clear.",
+            f"❌ {user.mention} has no warnings.",
             ephemeral=True
         )
         return
 
+    cursor.execute("""
+        DELETE FROM warnings
+        WHERE guild_id = ?
+        AND user_id = ?
+    """, (
+        interaction.guild.id,
+        user.id
+    ))
+
+    conn.commit()
+    conn.close()
+
     embed = discord.Embed(
         title="🧹 Warnings Cleared",
         description=(
-            f"Cleared **{len(old_warnings)}** warning(s) "
+            f"Cleared **{count}** warning(s) "
             f"from {user.mention}."
         ),
         color=discord.Color.green()
@@ -1171,7 +1269,6 @@ async def clearwarnings(
     await interaction.response.send_message(
         embed=embed
     )
-
 # ============================================================
 # MODERATION - PURGE
 # ============================================================
