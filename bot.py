@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 import io
+import json
 
 
 # ============================================================
@@ -590,6 +591,37 @@ async def bloxlink_request(
     except aiohttp.ClientError as e:
         print(f"Bloxlink API error: {e}")
         return None, "Bloxlink API connection failed."
+
+# ============================================================
+# SERVER CONFIGURATION
+# ============================================================
+
+CONFIG_FILE = "server_config.json"
+
+
+def load_server_config():
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+server_config = load_server_config()
+
+
+def save_server_config():
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(server_config, f, indent=4)
+
+
+def get_guild_config(guild_id: int):
+    guild_id = str(guild_id)
+
+    if guild_id not in server_config:
+        server_config[guild_id] = {}
+
+    return server_config[guild_id]
 
 
 # ============================================================
@@ -3961,6 +3993,274 @@ async def on_guild_channel_delete(
         channel.guild,
         embed
     )    
+
+# ============================================================
+# /CONFIG
+# ============================================================
+
+@bot.tree.command(
+    name="config",
+    description="Configure Pebble for this server."
+)
+@app_commands.describe(
+    setting="The setting you want to change.",
+    channel="Channel to use for the setting.",
+    role="Role to use for the setting.",
+    category="Category to use for the setting."
+)
+@app_commands.choices(
+    setting=[
+        app_commands.Choice(
+            name="Welcome Channel",
+            value="welcome_channel"
+        ),
+        app_commands.Choice(
+            name="Log Channel",
+            value="log_channel"
+        ),
+        app_commands.Choice(
+            name="Ticket Log Channel",
+            value="ticket_log_channel"
+        ),
+        app_commands.Choice(
+            name="Ticket Category",
+            value="ticket_category"
+        ),
+        app_commands.Choice(
+            name="Verified Role",
+            value="verified_role"
+        )
+    ]
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def config(
+    interaction: discord.Interaction,
+    setting: app_commands.Choice[str],
+    channel: discord.TextChannel = None,
+    role: discord.Role = None,
+    category: discord.CategoryChannel = None
+):
+
+    guild = interaction.guild
+
+    if guild is None:
+        await interaction.response.send_message(
+            "❌ This command can only be used in a server.",
+            ephemeral=True
+        )
+        return
+
+    config_data = get_guild_config(guild.id)
+
+    setting_name = setting.value
+
+    # --------------------------------------------------------
+    # CHANNEL SETTINGS
+    # --------------------------------------------------------
+
+    if setting_name == "welcome_channel":
+
+        if channel is None:
+            await interaction.response.send_message(
+                "❌ Please select a channel.",
+                ephemeral=True
+            )
+            return
+
+        config_data["welcome_channel"] = channel.id
+
+        save_server_config()
+
+        await interaction.response.send_message(
+            f"✅ Welcome channel set to {channel.mention}.",
+            ephemeral=True
+        )
+        return
+
+    if setting_name == "log_channel":
+
+        if channel is None:
+            await interaction.response.send_message(
+                "❌ Please select a channel.",
+                ephemeral=True
+            )
+            return
+
+        config_data["log_channel"] = channel.id
+
+        save_server_config()
+
+        await interaction.response.send_message(
+            f"✅ Log channel set to {channel.mention}.",
+            ephemeral=True
+        )
+        return
+
+    if setting_name == "ticket_log_channel":
+
+        if channel is None:
+            await interaction.response.send_message(
+                "❌ Please select a channel.",
+                ephemeral=True
+            )
+            return
+
+        config_data["ticket_log_channel"] = channel.id
+
+        save_server_config()
+
+        await interaction.response.send_message(
+            f"✅ Ticket log channel set to {channel.mention}.",
+            ephemeral=True
+        )
+        return
+
+    # --------------------------------------------------------
+    # TICKET CATEGORY
+    # --------------------------------------------------------
+
+    if setting_name == "ticket_category":
+
+        if category is None:
+            await interaction.response.send_message(
+                "❌ Please select a category.",
+                ephemeral=True
+            )
+            return
+
+        config_data["ticket_category"] = category.id
+
+        save_server_config()
+
+        await interaction.response.send_message(
+            f"✅ Ticket category set to **{category.name}**.",
+            ephemeral=True
+        )
+        return
+
+    # --------------------------------------------------------
+    # VERIFIED ROLE
+    # --------------------------------------------------------
+
+    if setting_name == "verified_role":
+
+        if role is None:
+            await interaction.response.send_message(
+                "❌ Please select a role.",
+                ephemeral=True
+            )
+            return
+
+        config_data["verified_role"] = role.id
+
+        save_server_config()
+
+        await interaction.response.send_message(
+            f"✅ Verified role set to {role.mention}.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.send_message(
+        "❌ Unknown configuration setting.",
+        ephemeral=True
+    )
+
+
+# ============================================================
+# /CONFIG-VIEW
+# ============================================================
+
+@bot.tree.command(
+    name="config-view",
+    description="View the current Pebble configuration."
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def config_view(
+    interaction: discord.Interaction
+):
+
+    guild = interaction.guild
+
+    if guild is None:
+        await interaction.response.send_message(
+            "❌ This command can only be used in a server.",
+            ephemeral=True
+        )
+        return
+
+    config_data = get_guild_config(guild.id)
+
+    def get_channel(key):
+        channel_id = config_data.get(key)
+
+        if not channel_id:
+            return "Not configured"
+
+        channel = guild.get_channel(channel_id)
+
+        return channel.mention if channel else "Channel not found"
+
+    def get_role(key):
+        role_id = config_data.get(key)
+
+        if not role_id:
+            return "Not configured"
+
+        role = guild.get_role(role_id)
+
+        return role.mention if role else "Role not found"
+
+    def get_category(key):
+        category_id = config_data.get(key)
+
+        if not category_id:
+            return "Not configured"
+
+        category = guild.get_channel(category_id)
+
+        return category.name if category else "Category not found"
+
+    embed = discord.Embed(
+        title="⚙️ Pebble Configuration",
+        description=f"Configuration for **{guild.name}**",
+        color=discord.Color.blurple()
+    )
+
+    embed.add_field(
+        name="👋 Welcome Channel",
+        value=get_channel("welcome_channel"),
+        inline=False
+    )
+
+    embed.add_field(
+        name="📋 Log Channel",
+        value=get_channel("log_channel"),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎫 Ticket Log Channel",
+        value=get_channel("ticket_log_channel"),
+        inline=False
+    )
+
+    embed.add_field(
+        name="📁 Ticket Category",
+        value=get_category("ticket_category"),
+        inline=False
+    )
+
+    embed.add_field(
+        name="✅ Verified Role",
+        value=get_role("verified_role"),
+        inline=False
+    )
+
+    await interaction.response.send_message(
+        embed=embed,
+        ephemeral=True
+    )
 
 # ============================================================
 # ERROR HANDLER
