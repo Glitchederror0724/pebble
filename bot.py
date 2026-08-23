@@ -1680,7 +1680,7 @@ async def poll(
 # AI
 # ============================================================
 
-@@bot.tree.command(
+@bot.tree.command(
     name="ask",
     description="Ask Gemini an AI question."
 )
