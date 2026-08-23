@@ -8,7 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
-from google import genai
+
 
 
 # ============================================================
@@ -49,17 +49,16 @@ if not BLOXLINK_API_KEY:
 
 
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
+# ============================================================
+# OPENROUTER AI
+# ============================================================
 
-gemini_client = None
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-if GEMINI_API_KEY:
-    gemini_client = genai.Client(
-        api_key=GEMINI_API_KEY
-    )
-else:
-    print("⚠️ GEMINI_API_KEY is not configured.")
+OPENROUTER_MODEL = os.getenv(
+    "OPENROUTER_MODEL",
+    "openrouter/free"
+)
 
 
 # ============================================================
@@ -1689,9 +1688,13 @@ async def poll(
 # AI
 # ============================================================
 
+# ============================================================
+# AI - OPENROUTER
+# ============================================================
+
 @bot.tree.command(
     name="ai",
-    description="Ask the AI a question."
+    description="Ask Pebble AI a question."
 )
 @app_commands.describe(
     question="What do you want to ask?"
@@ -1700,9 +1703,10 @@ async def ai(
     interaction: discord.Interaction,
     question: str
 ):
-    if gemini_client is None:
+
+    if not OPENROUTER_API_KEY:
         await interaction.response.send_message(
-            "❌ Gemini AI is not configured.",
+            "❌ OpenRouter is not configured.",
             ephemeral=True
         )
         return
@@ -1710,26 +1714,98 @@ async def ai(
     await interaction.response.defer()
 
     try:
-        response = await gemini_client.aio.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=question
+        payload = {
+            "model": OPENROUTER_MODEL,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Pebble AI, the helpful AI assistant "
+                        "for a Discord bot called Pebble. "
+                        "Be friendly, concise, and helpful."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": question
+                }
+            ],
+            "max_tokens": 1000
+        }
+
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://discord.com/",
+            "X-Title": "Pebble Discord Bot"
+        }
+
+        timeout = aiohttp.ClientTimeout(total=90)
+
+        async with aiohttp.ClientSession(
+            timeout=timeout
+        ) as session:
+
+            async with session.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=payload
+            ) as response:
+
+                data = await response.json()
+
+                if response.status != 200:
+                    print(
+                        f"OpenRouter HTTP {response.status}: "
+                        f"{data}"
+                    )
+
+                    error_message = (
+                        data.get("error", {})
+                        .get("message", "Unknown error")
+                    )
+
+                    await interaction.followup.send(
+                        f"❌ AI error: {error_message}"
+                    )
+                    return
+
+        answer = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content")
         )
 
-        answer = response.text or "Gemini returned no response."
+        if not answer:
+            await interaction.followup.send(
+                "❌ The AI returned an empty response."
+            )
+            return
 
+        # Discord messages are limited to 2000 characters.
         if len(answer) <= 2000:
+
             await interaction.followup.send(answer)
+
         else:
+
             for i in range(0, len(answer), 2000):
                 await interaction.followup.send(
                     answer[i:i + 2000]
                 )
 
-    except Exception as e:
-        print(f"Gemini error: {e}")
+    except asyncio.TimeoutError:
 
         await interaction.followup.send(
-            "❌ Gemini encountered an error."
+            "⏳ The AI took too long to respond."
+        )
+
+    except Exception as e:
+
+        print(f"OpenRouter error: {e}")
+
+        await interaction.followup.send(
+            "❌ Something went wrong while contacting the AI."
         )
 # ============================================================
 # ERROR HANDLER
