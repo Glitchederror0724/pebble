@@ -4263,6 +4263,171 @@ async def config_view(
     )
 
 # ============================================================
+# WELCOME / LEAVE SYSTEM
+# ============================================================
+
+@bot.event
+async def on_member_join(member: discord.Member):
+
+    guild = member.guild
+    config_data = get_guild_config(guild.id)
+
+    # --------------------------------------------------------
+    # AUTO ROLE
+    # --------------------------------------------------------
+
+    auto_role_id = config_data.get("auto_role")
+
+    if auto_role_id:
+        role = guild.get_role(auto_role_id)
+
+        if role:
+            try:
+                await member.add_roles(
+                    role,
+                    reason="Automatic welcome role"
+                )
+            except discord.Forbidden:
+                print(
+                    f"❌ Cannot give {role.name} to {member}."
+                )
+            except Exception as e:
+                print(
+                    f"❌ Auto-role error: {e}"
+                )
+
+    # --------------------------------------------------------
+    # WELCOME CHANNEL
+    # --------------------------------------------------------
+
+    welcome_channel_id = config_data.get(
+        "welcome_channel"
+    )
+
+    if not welcome_channel_id:
+        return
+
+    channel = guild.get_channel(
+        welcome_channel_id
+    )
+
+    if channel is None:
+        return
+
+    member_count = guild.member_count or len(guild.members)
+
+    embed = discord.Embed(
+        title="👋 Welcome!",
+        description=(
+            f"Welcome {member.mention} to **{guild.name}**!\n\n"
+            f"We hope you enjoy your time here! 🎉"
+        ),
+        color=discord.Color.green(),
+        timestamp=datetime.utcnow()
+    )
+
+    embed.set_thumbnail(
+        url=member.display_avatar.url
+    )
+
+    embed.add_field(
+        name="👤 Member",
+        value=member.mention,
+        inline=True
+    )
+
+    embed.add_field(
+        name="👥 Member Count",
+        value=f"**{member_count:,}**",
+        inline=True
+    )
+
+    embed.set_footer(
+        text=f"Member ID: {member.id}"
+    )
+
+    try:
+        await channel.send(
+            embed=embed
+        )
+    except discord.Forbidden:
+        print(
+            f"❌ Cannot send welcome message in #{channel.name}."
+        )
+    except Exception as e:
+        print(
+            f"❌ Welcome message error: {e}"
+        )
+
+
+# ============================================================
+# LEAVE SYSTEM
+# ============================================================
+
+@bot.event
+async def on_member_remove(member: discord.Member):
+
+    guild = member.guild
+    config_data = get_guild_config(guild.id)
+
+    # Use the welcome channel for leave messages
+    # unless you later configure a separate leave channel.
+
+    welcome_channel_id = config_data.get(
+        "welcome_channel"
+    )
+
+    if not welcome_channel_id:
+        return
+
+    channel = guild.get_channel(
+        welcome_channel_id
+    )
+
+    if channel is None:
+        return
+
+    member_count = guild.member_count or len(guild.members)
+
+    embed = discord.Embed(
+        title="👋 Member Left",
+        description=(
+            f"**{member}** has left **{guild.name}**."
+        ),
+        color=discord.Color.red(),
+        timestamp=datetime.utcnow()
+    )
+
+    embed.set_thumbnail(
+        url=member.display_avatar.url
+    )
+
+    embed.add_field(
+        name="👤 Member",
+        value=str(member),
+        inline=True
+    )
+
+    embed.add_field(
+        name="👥 Members Remaining",
+        value=f"**{member_count:,}**",
+        inline=True
+    )
+
+    try:
+        await channel.send(
+            embed=embed
+        )
+    except discord.Forbidden:
+        print(
+            f"❌ Cannot send leave message in #{channel.name}."
+        )
+    except Exception as e:
+        print(
+            f"❌ Leave message error: {e}"
+        )
+
+# ============================================================
 # ERROR HANDLER
 # ============================================================
 
