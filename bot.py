@@ -142,6 +142,76 @@ bot = commands.Bot(
     intents=intents,
 )
 
+# ============================================================
+# LEVEL XP
+# ============================================================
+
+level_cooldowns = {}
+
+
+@bot.event
+async def on_message(message: discord.Message):
+
+    if message.author.bot:
+        return
+
+    if message.guild is None:
+        await bot.process_commands(message)
+        return
+
+    user_id = message.author.id
+    guild_id = message.guild.id
+
+    cooldown_key = (guild_id, user_id)
+
+    now = datetime.utcnow()
+
+    last_message = level_cooldowns.get(cooldown_key)
+
+    # 60 second XP cooldown
+    if (
+        last_message is None
+        or (now - last_message).total_seconds() >= 60
+    ):
+
+        level_cooldowns[cooldown_key] = now
+
+        user_data = get_user_level_data(
+            guild_id,
+            user_id
+        )
+
+        old_level = user_data["level"]
+
+        # Random XP between 10 and 20
+        gained_xp = random.randint(10, 20)
+
+        user_data["xp"] += gained_xp
+
+        new_level = calculate_level(
+            user_data["xp"]
+        )
+
+        user_data["level"] = new_level
+
+        save_levels()
+
+        # ----------------------------------------------------
+        # LEVEL UP
+        # ----------------------------------------------------
+
+        if new_level > old_level:
+
+            try:
+                await message.channel.send(
+                    f"🎉 {message.author.mention} "
+                    f"leveled up to **Level {new_level}**!"
+                )
+            except discord.Forbidden:
+                pass
+
+    await bot.process_commands(message)
+
 
 # ============================================================
 # HELPERS
@@ -623,7 +693,54 @@ def get_guild_config(guild_id: int):
 
     return server_config[guild_id]
 
+# ============================================================
+# LEVELING SYSTEM
+# ============================================================
 
+LEVELS_FILE = "levels.json"
+
+try:
+    with open(LEVELS_FILE, "r", encoding="utf-8") as f:
+        levels_data = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    levels_data = {}
+
+
+def save_levels():
+    with open(LEVELS_FILE, "w", encoding="utf-8") as f:
+        json.dump(levels_data, f, indent=4)
+
+
+def get_user_level_data(guild_id: int, user_id: int):
+    guild_id = str(guild_id)
+    user_id = str(user_id)
+
+    if guild_id not in levels_data:
+        levels_data[guild_id] = {}
+
+    if user_id not in levels_data[guild_id]:
+        levels_data[guild_id][user_id] = {
+            "xp": 0,
+            "level": 0
+        }
+
+    return levels_data[guild_id][user_id]
+
+
+def xp_for_next_level(level: int) -> int:
+    return 100 + (level * 50)
+
+
+def calculate_level(xp: int) -> int:
+    level = 0
+
+    while xp >= xp_for_next_level(level):
+        xp -= xp_for_next_level(level)
+        level += 1
+
+    return level
+
+    
 # ============================================================
 # /VERIFY
 # ============================================================
@@ -4426,6 +4543,192 @@ async def on_member_remove(member: discord.Member):
         print(
             f"❌ Leave message error: {e}"
         )
+
+# ============================================================
+# /RANK
+# ============================================================
+
+@bot.tree.command(
+    name="rank",
+    description="View your leveling progress."
+)
+@app_commands.describe(
+    user="User whose rank you want to view."
+)
+async def rank(
+    interaction: discord.Interaction,
+    user: discord.Member = None
+):
+
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "❌ This command can only be used in a server.",
+            ephemeral=True
+        )
+        return
+
+    user = user or interaction.user
+
+    data = get_user_level_data(
+        interaction.guild.id,
+        user.id
+    )
+
+    level = data["level"]
+    xp = data["xp"]
+
+    current_level_xp = 0
+
+    for i in range(level):
+        current_level_xp += xp_for_next_level(i)
+
+    next_level_xp = xp_for_next_level(level)
+
+    progress_xp = xp - current_level_xp
+
+    progress_xp = max(
+        0,
+        min(progress_xp, next_level_xp)
+    )
+
+    progress_percent = (
+        progress_xp / next_level_xp
+        if next_level_xp > 0
+        else 0
+    )
+
+    bar_length = 15
+
+    filled = int(
+        progress_percent * bar_length
+    )
+
+    bar = (
+        "█" * filled
+        + "░" * (bar_length - filled)
+    )
+
+    embed = discord.Embed(
+        title="🏆 Level",
+        description=f"**{user.display_name}**",
+        color=discord.Color.blurple()
+    )
+
+    embed.set_thumbnail(
+        url=user.display_avatar.url
+    )
+
+    embed.add_field(
+        name="Level",
+        value=f"**{level}**",
+        inline=True
+    )
+
+    embed.add_field(
+        name="Total XP",
+        value=f"**{xp:,}**",
+        inline=True
+    )
+
+    embed.add_field(
+        name="Progress",
+        value=(
+            f"`{bar}`\n"
+            f"**{progress_xp:,} / {next_level_xp:,} XP**"
+        ),
+        inline=False
+    )
+
+    await interaction.response.send_message(
+        embed=embed
+    )
+
+# ============================================================
+# /LEADERBOARD
+# ============================================================
+
+@bot.tree.command(
+    name="leaderboard",
+    description="View the server leveling leaderboard."
+)
+async def leaderboard(
+    interaction: discord.Interaction
+):
+
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "❌ This command can only be used in a server.",
+            ephemeral=True
+        )
+        return
+
+    guild_data = levels_data.get(
+        str(interaction.guild.id),
+        {}
+    )
+
+    if not guild_data:
+        await interaction.response.send_message(
+            "📊 Nobody has earned XP yet!"
+        )
+        return
+
+    sorted_users = sorted(
+        guild_data.items(),
+        key=lambda item: item[1].get("xp", 0),
+        reverse=True
+    )
+
+    lines = []
+
+    for position, (user_id, data) in enumerate(
+        sorted_users[:10],
+        start=1
+    ):
+
+        member = interaction.guild.get_member(
+            int(user_id)
+        )
+
+        if member is None:
+            continue
+
+        level = data.get("level", 0)
+        xp = data.get("xp", 0)
+
+        if position == 1:
+            medal = "🥇"
+        elif position == 2:
+            medal = "🥈"
+        elif position == 3:
+            medal = "🥉"
+        else:
+            medal = f"`#{position}`"
+
+        lines.append(
+            f"{medal} **{member.display_name}** "
+            f"— Level **{level}** • **{xp:,} XP**"
+        )
+
+    if not lines:
+        await interaction.response.send_message(
+            "📊 Nobody on the leaderboard is currently in this server."
+        )
+        return
+
+    embed = discord.Embed(
+        title="🏆 Level Leaderboard",
+        description="\n".join(lines),
+        color=discord.Color.gold()
+    )
+
+    embed.set_footer(
+        text=interaction.guild.name
+    )
+
+    await interaction.response.send_message(
+        embed=embed
+    )
 
 # ============================================================
 # ERROR HANDLER
