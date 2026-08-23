@@ -416,11 +416,14 @@ async def on_ready():
             # Sync only the current commands
             synced = await bot.tree.sync(guild=guild)
 
+            # Sync only the current commands
+            synced = await bot.tree.sync(guild=guild)
+
             print(f"Synced {len(synced)} commands to test guild.")
 
-                bot.add_view(TicketPanelView())
-                bot.add_view(TicketControlView())
-            
+            bot.add_view(TicketPanelView())
+            bot.add_view(TicketControlView())
+
             print("Commands:")
             for command in synced:
                 print(f"  /{command.name}")
