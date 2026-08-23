@@ -1736,7 +1736,6 @@ async def clearwarns(
         f"✅ Cleared **{old_count}** warnings from {user.mention}.",
         ephemeral=True
     )
-```
 
 # ============================================================
 # MODERATION - PURGE
