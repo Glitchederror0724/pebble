@@ -338,6 +338,10 @@ async def on_ready():
         if TEST_GUILD_ID:
             guild = discord.Object(id=int(TEST_GUILD_ID))
 
+            # Copy all registered commands to the test guild.
+            bot.tree.copy_global_to(guild=guild)
+
+            # Sync them to the test guild.
             synced = await bot.tree.sync(guild=guild)
 
             print(f"Synced {len(synced)} commands to test guild.")
@@ -351,7 +355,6 @@ async def on_ready():
         print(f"Command sync error: {e}")
 
     print("=" * 50)
-
 
 # ============================================================
 # SERVER INFO
