@@ -8,7 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from google import genai
 
 
 # ============================================================
@@ -18,18 +18,14 @@ from openai import AsyncOpenAI
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Optional: put your Discord server ID here while testing.
 # Slash commands will appear almost instantly in this server.
 TEST_GUILD_ID = os.getenv("TEST_GUILD_ID")
 
-# OpenAI model
-OPENAI_MODEL = os.getenv(
-    "OPENAI_MODEL",
-    "openai/gpt-5.2"
-)
-
+## ============================================================
+# GEMINI AI
+# ============================================================
 # Roblox verification role name
 VERIFY_ROLE_NAME = os.getenv("VERIFY_ROLE_NAME", "Verified")
 
@@ -50,13 +46,20 @@ if not DISCORD_TOKEN:
 if not BLOXLINK_API_KEY:
     print("⚠️ BLOXLINK_API_KEY is not configured. Roblox verification commands will be unavailable.")
 
-openai_client = None
 
-if OPENAI_API_KEY:
-   openai_client = AsyncOpenAI(
-    base_url="https://api.bazaarlink.ai/v1",
-    api_key=OPENAI_API_KEY
-)
+
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
+
+gemini_client = None
+
+if GEMINI_API_KEY:
+    gemini_client = genai.Client(
+        api_key=GEMINI_API_KEY
+    )
+else:
+    print("⚠️ GEMINI_API_KEY is not configured.")
 
 
 # ============================================================
@@ -1677,22 +1680,21 @@ async def poll(
 # AI
 # ============================================================
 
-@bot.tree.command(
-    name="ai",
-    description="Ask the AI a question."
+@@bot.tree.command(
+    name="ask",
+    description="Ask Gemini an AI question."
 )
 @app_commands.describe(
-    prompt="What do you want to ask?"
+    question="What do you want to ask?"
 )
-async def ai(
+async def ask(
     interaction: discord.Interaction,
-    prompt: str
+    question: str
 ):
 
-    if openai_client is None:
+    if gemini_client is None:
         await interaction.response.send_message(
-            "❌ The OpenAI API is not configured. "
-            "Add `OPENAI_API_KEY` to your environment variables.",
+            "❌ Gemini AI is not configured.",
             ephemeral=True
         )
         return
@@ -1700,65 +1702,31 @@ async def ai(
     await interaction.response.defer()
 
     try:
-
-        response = await openai_client.responses.create(
-            model=OPENAI_MODEL,
-            instructions=(
-                "You are a helpful Discord server assistant. "
-                "Give clear, useful answers. "
-                "Keep responses reasonably concise because they "
-                "will be displayed inside Discord."
-            ),
-            input=prompt
+        response = await gemini_client.aio.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=question
         )
 
-        answer = response.output_text.strip()
+        answer = response.text
 
         if not answer:
-            answer = "I couldn't generate a response."
+            answer = "❌ Gemini returned an empty response."
 
-        # Discord messages have a 2000-character limit.
-        if len(answer) <= 1900:
-
-            embed = discord.Embed(
-                title="🤖 AI",
-                description=answer,
-                color=discord.Color.blurple()
-            )
-
-            embed.set_footer(
-                text=f"Asked by {interaction.user}"
-            )
-
-            await interaction.followup.send(
-                embed=embed
-            )
-
+        # Discord messages have a 2000 character limit.
+        if len(answer) <= 2000:
+            await interaction.followup.send(answer)
         else:
-
-            chunks = [
-                answer[i:i + 1900]
-                for i in range(0, len(answer), 1900)
-            ]
-
-            await interaction.followup.send(
-                f"🤖 **AI:**\n{chunks[0]}"
-            )
-
-            for chunk in chunks[1:]:
+            for i in range(0, len(answer), 2000):
                 await interaction.followup.send(
-                    chunk
+                    answer[i:i + 2000]
                 )
 
     except Exception as e:
-
-        print(f"OpenAI error: {e}")
+        print(f"Gemini API error: {e}")
 
         await interaction.followup.send(
-            "❌ I couldn't reach the AI service right now."
+            "❌ Gemini couldn't process your request."
         )
-
-
 # ============================================================
 # ERROR HANDLER
 # ============================================================
