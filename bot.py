@@ -336,20 +336,20 @@ async def on_ready():
     print(f"Bot ID: {bot.user.id}")
     print(f"Servers: {len(bot.guilds)}")
 
-    try:
-        if not TEST_GUILD_ID:
-            print("❌ TEST_GUILD_ID is not set.")
-            return
+    if not TEST_GUILD_ID:
+        print("❌ TEST_GUILD_ID is not set.")
+        return
 
+    try:
         guild = discord.Object(id=int(TEST_GUILD_ID))
 
-        # Remove the existing test-guild command tree
+        # Remove all existing commands from this test guild.
         bot.tree.clear_commands(guild=guild)
 
-        # Copy the current commands from this bot
+        # Copy the commands defined in this bot into the test guild.
         bot.tree.copy_global_to(guild=guild)
 
-        # Register the current command definitions
+        # Register them.
         synced = await bot.tree.sync(guild=guild)
 
         print(f"Synced {len(synced)} commands to test guild.")
