@@ -1196,9 +1196,177 @@ async def timeout(
         f"⏳ **{user}** has been timed out for **{minutes} minutes**."
     )
 
+# ============================================================
+# PERSISTENT WARNING SYSTEM
+# ============================================================
+
+WARNINGS_FILE = "warnings.json"
+
+try:
+    with open(WARNINGS_FILE, "r", encoding="utf-8") as f:
+        warnings_data = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    warnings_data = {}
+
+
+def save_warnings():
+    with open(WARNINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(warnings_data, f, indent=4)
+
+
+def get_user_warnings(guild_id: int, user_id: int):
+    guild_id = str(guild_id)
+    user_id = str(user_id)
+
+    if guild_id not in warnings_data:
+        warnings_data[guild_id] = {}
+
+    if user_id not in warnings_data[guild_id]:
+        warnings_data[guild_id][user_id] = []
+
+    return warnings_data[guild_id][user_id]
+
+
+async def send_punishment_dm(
+    user: discord.Member,
+    guild: discord.Guild,
+    punishment: str,
+    reason: str,
+    warning_count: int
+):
+    try:
+        embed = discord.Embed(
+            title="⚠️ Moderation Action",
+            description=(
+                f"You have received a moderation action "
+                f"in **{guild.name}**."
+            ),
+            color=discord.Color.red()
+        )
+
+        embed.add_field(
+            name="📋 Punishment",
+            value=punishment,
+            inline=False
+        )
+
+        embed.add_field(
+            name="⚠️ Warnings",
+            value=f"**{warning_count}**",
+            inline=True
+        )
+
+        embed.add_field(
+            name="📝 Reason",
+            value=reason,
+            inline=True
+        )
+
+        embed.set_footer(
+            text="Pebble Moderation"
+        )
+
+        await user.send(embed=embed)
+
+    except discord.Forbidden:
+        print(
+            f"⚠️ Could not DM {user}."
+        )
+
+    except Exception as e:
+        print(
+            f"❌ Punishment DM error: {e}"
+        )
+
+
+async def send_moderation_log(
+    guild: discord.Guild,
+    title: str,
+    description: str,
+    color=discord.Color.red()
+):
+
+    config_data = get_guild_config(guild.id)
+
+    log_channel_id = config_data.get(
+        "log_channel"
+    )
+
+    if not log_channel_id:
+        return
+
+    channel = guild.get_channel(
+        log_channel_id
+    )
+
+    if channel is None:
+        return
+
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=color,
+        timestamp=datetime.utcnow()
+    )
+
+    try:
+        await channel.send(embed=embed)
+
+    except discord.Forbidden:
+        print(
+            f"❌ Cannot send moderation log in #{channel.name}."
+        )
+
+    except Exception as e:
+        print(
+            f"❌ Moderation log error: {e}"
+        )
+
+
+async def temporary_unban(
+    guild_id: int,
+    user_id: int,
+    seconds: int
+):
+
+    await asyncio.sleep(seconds)
+
+    guild = bot.get_guild(guild_id)
+
+    if guild is None:
+        return
+
+    try:
+        user = await bot.fetch_user(user_id)
+
+        await guild.unban(
+            user,
+            reason="Temporary punishment expired"
+        )
+
+        await send_moderation_log(
+            guild,
+            "🔓 Temporary Ban Expired",
+            f"**{user}** has been automatically unbanned.",
+            discord.Color.green()
+        )
+
+    except discord.NotFound:
+        pass
+
+    except discord.Forbidden:
+        print(
+            f"❌ Cannot unban user {user_id}."
+        )
+
+    except Exception as e:
+        print(
+            f"❌ Automatic unban error: {e}"
+        )
+
 
 # ============================================================
-# MODERATION - WARN
+# /WARN
 # ============================================================
 
 @bot.tree.command(
@@ -1209,81 +1377,212 @@ async def timeout(
     user="Member to warn.",
     reason="Reason for the warning."
 )
-@app_commands.checks.has_permissions(moderate_members=True)
+@app_commands.checks.has_permissions(
+    moderate_members=True
+)
 async def warn(
     interaction: discord.Interaction,
     user: discord.Member,
     reason: str = "No reason provided"
 ):
 
-    conn = get_db()
-    cursor = conn.cursor()
+    guild = interaction.guild
 
-    cursor.execute("""
-        INSERT INTO warnings (
-            guild_id,
-            user_id,
-            moderator_id,
-            reason,
-            created_at
+    if guild is None:
+        await interaction.response.send_message(
+            "❌ This command can only be used in a server.",
+            ephemeral=True
         )
-        VALUES (?, ?, ?, ?, ?)
-    """, (
-        interaction.guild.id,
-        user.id,
-        interaction.user.id,
-        reason,
-        discord.utils.utcnow().isoformat()
-    ))
+        return
 
-    cursor.execute("""
-        SELECT COUNT(*) AS count
-        FROM warnings
-        WHERE guild_id = ?
-        AND user_id = ?
-    """, (
-        interaction.guild.id,
+    if user.bot:
+        await interaction.response.send_message(
+            "❌ You cannot warn a bot.",
+            ephemeral=True
+        )
+        return
+
+    if user == interaction.user:
+        await interaction.response.send_message(
+            "❌ You cannot warn yourself.",
+            ephemeral=True
+        )
+        return
+
+    if user.top_role >= interaction.user.top_role:
+        await interaction.response.send_message(
+            "❌ You cannot warn someone with an equal or higher role.",
+            ephemeral=True
+        )
+        return
+
+    # --------------------------------------------------------
+    # SAVE WARNING
+    # --------------------------------------------------------
+
+    user_warnings = get_user_warnings(
+        guild.id,
         user.id
-    ))
-
-    count = cursor.fetchone()["count"]
-
-    conn.commit()
-    conn.close()
-
-    embed = discord.Embed(
-        title="⚠️ Warning Issued",
-        color=discord.Color.orange()
     )
 
-    embed.add_field(
-        name="User",
-        value=user.mention,
-        inline=True
+    user_warnings.append({
+        "reason": reason,
+        "moderator_id": interaction.user.id,
+        "moderator_name": str(interaction.user),
+        "timestamp": datetime.utcnow().isoformat()
+    })
+
+    save_warnings()
+
+    warning_count = len(user_warnings)
+
+    # --------------------------------------------------------
+    # DETERMINE PUNISHMENT
+    # --------------------------------------------------------
+
+    punishment = "Warning"
+    punishment_text = "⚠️ You have received a warning."
+
+    if warning_count == 3:
+
+        punishment = "Timeout for 1 hour"
+        punishment_text = "🔇 You have been timed out for 1 hour."
+
+    elif warning_count == 4:
+
+        punishment = "Kick"
+        punishment_text = "👢 You have been kicked from the server."
+
+    elif warning_count == 5:
+
+        punishment = "Temporary ban for 1 day"
+        punishment_text = "🔨 You have been temporarily banned for 1 day."
+
+    elif warning_count >= 6:
+
+        punishment = "Ban for 1 year"
+        punishment_text = "🔨 You have been banned for 1 year."
+
+    # --------------------------------------------------------
+    # SEND DM BEFORE PUNISHMENT
+    # --------------------------------------------------------
+
+    await send_punishment_dm(
+        user=user,
+        guild=guild,
+        punishment=punishment,
+        reason=reason,
+        warning_count=warning_count
     )
 
-    embed.add_field(
-        name="Warnings",
-        value=str(count),
-        inline=True
+    # --------------------------------------------------------
+    # APPLY PUNISHMENT
+    # --------------------------------------------------------
+
+    punishment_success = True
+
+    try:
+
+        if warning_count == 3:
+
+            await user.timeout(
+                discord.utils.utcnow() + timedelta(hours=1),
+                reason=f"Reached 3 warnings: {reason}"
+            )
+
+        elif warning_count == 4:
+
+            await user.kick(
+                reason=f"Reached 4 warnings: {reason}"
+            )
+
+        elif warning_count == 5:
+
+            await user.ban(
+                reason=f"Reached 5 warnings: {reason}"
+            )
+
+            asyncio.create_task(
+                temporary_unban(
+                    guild.id,
+                    user.id,
+                    86400
+                )
+            )
+
+        elif warning_count >= 6:
+
+            await user.ban(
+                reason=f"Reached 6+ warnings: {reason}"
+            )
+
+            asyncio.create_task(
+                temporary_unban(
+                    guild.id,
+                    user.id,
+                    31536000
+                )
+            )
+
+    except discord.Forbidden:
+
+        punishment_success = False
+
+        print(
+            f"❌ Bot cannot punish {user}."
+        )
+
+    except Exception as e:
+
+        punishment_success = False
+
+        print(
+            f"❌ Punishment error: {e}"
+        )
+
+    # --------------------------------------------------------
+    # LOG
+    # --------------------------------------------------------
+
+    await send_moderation_log(
+        guild,
+        "⚠️ Warning / Punishment",
+        (
+            f"**User:** {user.mention} (`{user.id}`)\n"
+            f"**Moderator:** {interaction.user.mention}\n"
+            f"**Warnings:** `{warning_count}`\n"
+            f"**Punishment:** `{punishment}`\n"
+            f"**Reason:** {reason}\n"
+            f"**Punishment successful:** "
+            f"`{'Yes' if punishment_success else 'No'}`"
+        )
     )
 
-    embed.add_field(
-        name="Reason",
-        value=reason,
-        inline=False
-    )
+    # --------------------------------------------------------
+    # RESPONSE
+    # --------------------------------------------------------
 
-    embed.set_footer(
-        text=f"Warned by {interaction.user}"
-    )
+    if warning_count < 3:
 
-    await interaction.response.send_message(
-        embed=embed
-    )
+        await interaction.response.send_message(
+            f"⚠️ **{user}** has been warned.\n"
+            f"**Warnings:** `{warning_count}`\n"
+            f"**Reason:** {reason}\n"
+            f"📩 The user was sent a DM."
+        )
+
+    else:
+
+        await interaction.response.send_message(
+            f"⚠️ **{user}** received warning `{warning_count}`.\n"
+            f"**Punishment:** {punishment}\n"
+            f"**Reason:** {reason}\n"
+            f"📩 The user was sent a DM."
+        )
+
 
 # ============================================================
-# VIEW WARNINGS
+# /WARNINGS
 # ============================================================
 
 @bot.tree.command(
@@ -1293,70 +1592,76 @@ async def warn(
 @app_commands.describe(
     user="Member whose warnings you want to view."
 )
-@app_commands.checks.has_permissions(moderate_members=True)
+@app_commands.checks.has_permissions(
+    moderate_members=True
+)
 async def warnings_command(
     interaction: discord.Interaction,
     user: discord.Member
 ):
 
-    conn = get_db()
-    cursor = conn.cursor()
+    guild = interaction.guild
 
-    cursor.execute("""
-        SELECT *
-        FROM warnings
-        WHERE guild_id = ?
-        AND user_id = ?
-        ORDER BY id ASC
-    """, (
-        interaction.guild.id,
-        user.id
-    ))
-
-    rows = cursor.fetchall()
-
-    conn.close()
-
-    if not rows:
+    if guild is None:
         await interaction.response.send_message(
-            f"✅ {user.mention} has no warnings.",
+            "❌ This command can only be used in a server.",
             ephemeral=True
         )
         return
 
+    user_warnings = get_user_warnings(
+        guild.id,
+        user.id
+    )
+
+    if not user_warnings:
+
+        await interaction.response.send_message(
+            f"✅ **{user}** has no warnings.",
+            ephemeral=True
+        )
+        return
+
+    lines = []
+
+    for index, warning in enumerate(
+        user_warnings,
+        start=1
+    ):
+
+        timestamp = warning.get(
+            "timestamp",
+            "Unknown"
+        )
+
+        try:
+            dt = datetime.fromisoformat(
+                timestamp
+            )
+
+            time_text = format_dt(dt)
+
+        except Exception:
+            time_text = "Unknown"
+
+        lines.append(
+            f"**#{index}** — {warning.get('reason', 'No reason')}\n"
+            f"Moderator: `{warning.get('moderator_name', 'Unknown')}`\n"
+            f"Time: {time_text}"
+        )
+
     embed = discord.Embed(
         title=f"⚠️ Warnings — {user}",
+        description="\n\n".join(lines[:10]),
         color=discord.Color.orange()
     )
 
-    for row in rows:
-
-        moderator = interaction.guild.get_member(
-            row["moderator_id"]
-        )
-
-        moderator_name = (
-            moderator.mention
-            if moderator
-            else f"`{row['moderator_id']}`"
-        )
-
-        created = datetime.fromisoformat(
-            row["created_at"]
-        )
-
-        embed.add_field(
-            name=f"Warning #{row['id']}",
-            value=(
-                f"**Reason:** {row['reason']}\n"
-                f"**Moderator:** {moderator_name}\n"
-                f"**Date:** {format_dt(created)}"
-            ),
-            inline=False
-        )
+    embed.set_thumbnail(
+        url=user.display_avatar.url
+    )
 
     embed.set_footer(
-        text=f"Total warnings: {len(rows)}"
+        text=f"Total warnings: {len(user_warnings)}"
     )
 
     await interaction.response.send_message(
@@ -1364,75 +1669,75 @@ async def warnings_command(
         ephemeral=True
     )
 
+
 # ============================================================
-# CLEAR WARNINGS
+# /CLEARWARNS
 # ============================================================
 
 @bot.tree.command(
-    name="clearwarnings",
-    description="Clear all warnings from a member."
+    name="clearwarns",
+    description="Clear all warnings for a member."
 )
 @app_commands.describe(
     user="Member whose warnings should be cleared."
 )
-@app_commands.checks.has_permissions(moderate_members=True)
-async def clearwarnings(
+@app_commands.checks.has_permissions(
+    administrator=True
+)
+async def clearwarns(
     interaction: discord.Interaction,
     user: discord.Member
 ):
 
-    conn = get_db()
-    cursor = conn.cursor()
+    guild = interaction.guild
 
-    cursor.execute("""
-        SELECT COUNT(*) AS count
-        FROM warnings
-        WHERE guild_id = ?
-        AND user_id = ?
-    """, (
-        interaction.guild.id,
-        user.id
-    ))
-
-    count = cursor.fetchone()["count"]
-
-    if count == 0:
-        conn.close()
-
+    if guild is None:
         await interaction.response.send_message(
-            f"❌ {user.mention} has no warnings.",
+            "❌ This command can only be used in a server.",
             ephemeral=True
         )
         return
 
-    cursor.execute("""
-        DELETE FROM warnings
-        WHERE guild_id = ?
-        AND user_id = ?
-    """, (
-        interaction.guild.id,
-        user.id
-    ))
+    guild_id = str(guild.id)
+    user_id = str(user.id)
 
-    conn.commit()
-    conn.close()
+    if (
+        guild_id not in warnings_data
+        or user_id not in warnings_data[guild_id]
+        or not warnings_data[guild_id][user_id]
+    ):
 
-    embed = discord.Embed(
-        title="🧹 Warnings Cleared",
-        description=(
-            f"Cleared **{count}** warning(s) "
-            f"from {user.mention}."
-        ),
-        color=discord.Color.green()
+        await interaction.response.send_message(
+            f"✅ **{user}** has no warnings.",
+            ephemeral=True
+        )
+        return
+
+    old_count = len(
+        warnings_data[guild_id][user_id]
     )
 
-    embed.set_footer(
-        text=f"Cleared by {interaction.user}"
+    warnings_data[guild_id][user_id] = []
+
+    save_warnings()
+
+    await send_moderation_log(
+        guild,
+        "🧹 Warnings Cleared",
+        (
+            f"**User:** {user.mention}\n"
+            f"**Moderator:** {interaction.user.mention}\n"
+            f"**Warnings removed:** `{old_count}`"
+        ),
+        discord.Color.green()
     )
 
     await interaction.response.send_message(
-        embed=embed
+        f"✅ Cleared **{old_count}** warnings from {user.mention}.",
+        ephemeral=True
     )
+```
+
 # ============================================================
 # MODERATION - PURGE
 # ============================================================
