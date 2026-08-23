@@ -338,7 +338,6 @@ async def on_ready():
         if TEST_GUILD_ID:
             guild = discord.Object(id=int(TEST_GUILD_ID))
 
-            # Sync commands directly to the test server.
             synced = await bot.tree.sync(guild=guild)
 
             print(f"Synced {len(synced)} commands to test guild.")
