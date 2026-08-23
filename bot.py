@@ -334,11 +334,11 @@ async def on_ready():
     print(f"Bot ID: {bot.user.id}")
     print(f"Servers: {len(bot.guilds)}")
 
-       try:
-        # Remove ALL globally registered commands
+    if not TEST_GUILD_ID:
+        print("⚠️ TEST_GUILD_ID is not set.")
+        return
 
-        print("🧹 Cleared old global commands.")
-
+    try:
         guild = discord.Object(id=int(TEST_GUILD_ID))
 
         synced = await bot.tree.sync(guild=guild)
@@ -347,6 +347,8 @@ async def on_ready():
 
     except Exception as e:
         print(f"Command sync error: {e}")
+
+    print("=" * 50)
 
 # ============================================================
 # SERVER INFO
