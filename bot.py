@@ -1681,7 +1681,7 @@ async def poll(
 # ============================================================
 
 @bot.tree.command(
-    name="ask",
+    name="ai",
     description="Ask Gemini an AI question."
 )
 @app_commands.describe(
