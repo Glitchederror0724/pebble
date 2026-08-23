@@ -2194,7 +2194,238 @@ async def giveaway_reroll(
         f"🔄 New winner: <@{winner}>!\n"
         f"🎁 Prize: **{giveaway_data['prize']}**"
     )
+# ============================================================
+# SUGGESTIONS
+# ============================================================
 
+SUGGESTIONS_CHANNEL_NAME = "suggestions"
+
+
+class SuggestionView(discord.ui.View):
+    def __init__(self, author_id: int):
+        super().__init__(timeout=None)
+        self.author_id = author_id
+        self.upvotes = set()
+        self.downvotes = set()
+
+    @discord.ui.button(
+        label="0",
+        emoji="👍",
+        style=discord.ButtonStyle.success,
+        custom_id="suggestion_upvote"
+    )
+    async def upvote(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+        user_id = interaction.user.id
+
+        # Remove downvote if they already downvoted
+        self.downvotes.discard(user_id)
+
+        if user_id in self.upvotes:
+            self.upvotes.remove(user_id)
+        else:
+            self.upvotes.add(user_id)
+
+        button.label = str(len(self.upvotes))
+
+        # Update downvote button
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                if child.custom_id == "suggestion_downvote":
+                    child.label = str(len(self.downvotes))
+
+        await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(
+        label="0",
+        emoji="👎",
+        style=discord.ButtonStyle.danger,
+        custom_id="suggestion_downvote"
+    )
+    async def downvote(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+        user_id = interaction.user.id
+
+        # Remove upvote if they already upvoted
+        self.upvotes.discard(user_id)
+
+        if user_id in self.downvotes:
+            self.downvotes.remove(user_id)
+        else:
+            self.downvotes.add(user_id)
+
+        button.label = str(len(self.downvotes))
+
+        # Update upvote button
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                if child.custom_id == "suggestion_upvote":
+                    child.label = str(len(self.upvotes))
+
+        await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(
+        label="Approve",
+        emoji="✅",
+        style=discord.ButtonStyle.primary,
+        custom_id="suggestion_approve"
+    )
+    async def approve(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+        if not is_moderator(interaction):
+            await interaction.response.send_message(
+                "❌ You need moderation permissions to approve suggestions.",
+                ephemeral=True
+            )
+            return
+
+        embed = interaction.message.embeds[0]
+
+        embed.color = discord.Color.green()
+
+        embed.add_field(
+            name="Status",
+            value=f"✅ Approved by {interaction.user.mention}",
+            inline=False
+        )
+
+        for child in self.children:
+            child.disabled = True
+
+        await interaction.response.edit_message(
+            embed=embed,
+            view=self
+        )
+
+    @discord.ui.button(
+        label="Deny",
+        emoji="❌",
+        style=discord.ButtonStyle.secondary,
+        custom_id="suggestion_deny"
+    )
+    async def deny(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+        if not is_moderator(interaction):
+            await interaction.response.send_message(
+                "❌ You need moderation permissions to deny suggestions.",
+                ephemeral=True
+            )
+            return
+
+        embed = interaction.message.embeds[0]
+
+        embed.color = discord.Color.red()
+
+        embed.add_field(
+            name="Status",
+            value=f"❌ Denied by {interaction.user.mention}",
+            inline=False
+        )
+
+        for child in self.children:
+            child.disabled = True
+
+        await interaction.response.edit_message(
+            embed=embed,
+            view=self
+        )
+
+
+@bot.tree.command(
+    name="suggest",
+    description="Submit a suggestion for the server."
+)
+@app_commands.describe(
+    suggestion="What would you like to suggest?"
+)
+async def suggest(
+    interaction: discord.Interaction,
+    suggestion: str
+):
+
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "❌ This command can only be used in a server.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    # Find the suggestions channel
+    channel = discord.utils.get(
+        interaction.guild.text_channels,
+        name=SUGGESTIONS_CHANNEL_NAME
+    )
+
+    # Create it if it doesn't exist
+    if channel is None:
+        try:
+            channel = await interaction.guild.create_text_channel(
+                SUGGESTIONS_CHANNEL_NAME,
+                reason="Create suggestions channel"
+            )
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "❌ I don't have permission to create the suggestions channel.",
+                ephemeral=True
+            )
+            return
+
+    # Create suggestion embed
+    embed = discord.Embed(
+        title="💡 New Suggestion",
+        description=suggestion,
+        color=discord.Color.blurple(),
+        timestamp=discord.utils.utcnow()
+    )
+
+    embed.add_field(
+        name="Submitted by",
+        value=interaction.user.mention,
+        inline=True
+    )
+
+    embed.add_field(
+        name="Status",
+        value="🟡 Pending",
+        inline=True
+    )
+
+    embed.set_thumbnail(
+        url=interaction.user.display_avatar.url
+    )
+
+    embed.set_footer(
+        text=f"User ID: {interaction.user.id}"
+    )
+
+    # Create buttons
+    view = SuggestionView(interaction.user.id)
+
+    # Send suggestion
+    await channel.send(
+        embed=embed,
+        view=view
+    )
+
+    await interaction.followup.send(
+        f"✅ Your suggestion has been submitted in {channel.mention}!",
+        ephemeral=True
+    )
+    
 # ============================================================
 # ERROR HANDLER
 # ============================================================
