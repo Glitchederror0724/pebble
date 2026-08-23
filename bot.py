@@ -340,10 +340,6 @@ async def on_ready():
     try:
         guild = discord.Object(id=int(TEST_GUILD_ID))
 
-        # ONE-TIME: delete old global commands
-        bot.tree.clear_commands(guild=None)
-        await bot.tree.sync()
-
         # Register commands only in the test server
         bot.tree.clear_commands(guild=guild)
         bot.tree.copy_global_to(guild=guild)
